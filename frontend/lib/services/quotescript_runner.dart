@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 class QuoteScriptRunResult {
@@ -18,11 +19,10 @@ class QuoteScriptRunResult {
 }
 
 class QuoteScriptRunner {
-  /// Path to python executable: "python", "python3", or full path.
+  /// Dev fallback only (when bundled exe isn't found)
   String pythonPath;
 
-  /// Path to your QuoteScript python entrypoint (backend/main.py).
-  /// Can be relative or absolute.
+  /// Dev fallback only: path to backend/main.py
   String cliScriptPath;
 
   QuoteScriptRunner({
@@ -31,10 +31,6 @@ class QuoteScriptRunner {
   }) : cliScriptPath = cliScriptPath ?? _defaultCliPath();
 
   static String _defaultCliPath() {
-    // Your structure:
-    // F:\QuoteScriptPROJECT\frontend\...
-    // F:\QuoteScriptPROJECT\backend\main.py
-    // So from frontend: ..\backend\main.py
     if (Platform.isWindows) return r"..\backend\main.py";
     return "../backend/main.py";
   }
@@ -46,17 +42,43 @@ class QuoteScriptRunner {
     return v.toString();
   }
 
-  /// Resolve cliScriptPath to an absolute path.
-  /// If the configured path doesn't exist, walk upward until we find backend/main.py.
-  String _resolveCliAbsPath() {
+  Directory _appDir() {
+    // Path to the running executable:
+    // Windows: .../Release/YourApp.exe
+    // Linux:   .../bundle/your_app
+    // macOS:   .../YourApp.app/Contents/MacOS/YourApp
+    return File(Platform.resolvedExecutable).parent;
+  }
+
+  List<File> _bundledBackendCandidates() {
+    final dir = _appDir().path;
+    final exeName = Platform.isWindows ? "quotescript_cli.exe" : "quotescript_cli";
+
+    return [
+      // What our GitHub Actions will bundle:
+      File(p.join(dir, "quotescript_cli", exeName)),
+
+      // Optional alternative layouts (safe to check):
+      File(p.join(dir, exeName)),
+      File(p.join(dir, "backend", exeName)),
+    ];
+  }
+
+  File? _findBundledBackend() {
+    for (final f in _bundledBackendCandidates()) {
+      if (f.existsSync()) return f;
+    }
+    return null;
+  }
+
+  String _resolveDevScriptAbsPath() {
     final direct = File(cliScriptPath);
     if (direct.existsSync()) return direct.absolute.path;
 
+    // Walk upward and try to find backend/main.py (useful if cwd differs)
     var dir = Directory.current;
     while (true) {
-      final candidate = File(
-        "${dir.path}${Platform.pathSeparator}backend${Platform.pathSeparator}main.py",
-      );
+      final candidate = File(p.join(dir.path, "backend", "main.py"));
       if (candidate.existsSync()) return candidate.absolute.path;
 
       final parent = dir.parent;
@@ -64,32 +86,40 @@ class QuoteScriptRunner {
       dir = parent;
     }
 
-    // If still not found, return the absolute version of what user provided.
-    // (Python will fail with a clear error, but at least it's consistent.)
-    return direct.absolute.path;
+    return direct.absolute.path; // will fail with a clear python error if wrong
   }
 
-  Future<QuoteScriptRunResult> run({
-    required String scriptText,
-  }) async {
+  Future<QuoteScriptRunResult> run({required String scriptText}) async {
     final sw = Stopwatch()..start();
 
-    // Write the QS script to a temp file.
+    // Write QS to a temp file
     final tmpDir = await getTemporaryDirectory();
-    final qsFile = File("${tmpDir.path}${Platform.pathSeparator}example.qs");
+    final qsFile = File(p.join(tmpDir.path, "example.qs"));
     await qsFile.writeAsString(scriptText);
 
-    final cliAbsPath = _resolveCliAbsPath();
-    final cliFile = File(cliAbsPath);
+    ProcessResult res;
 
-    // Run: python <backend/main.py> <temp.qs>
-    // workingDirectory set to backend/ so relative paths like data/db/... work.
-    final res = await Process.run(
-      pythonPath,
-      [cliFile.path, qsFile.path],
-      runInShell: true,
-      workingDirectory: cliFile.parent.path,
-    );
+    final bundled = _findBundledBackend();
+    if (bundled != null) {
+      // Production mode: run bundled native backend
+      res = await Process.run(
+        bundled.path,
+        [qsFile.path],
+        runInShell: true,
+        workingDirectory: bundled.parent.path,
+      );
+    } else {
+      // Dev mode fallback: python backend/main.py <file>
+      final scriptAbs = _resolveDevScriptAbsPath();
+      final scriptFile = File(scriptAbs);
+
+      res = await Process.run(
+        pythonPath,
+        [scriptFile.path, qsFile.path],
+        runInShell: true,
+        workingDirectory: scriptFile.parent.path,
+      );
+    }
 
     sw.stop();
 

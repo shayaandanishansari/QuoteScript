@@ -67,19 +67,18 @@ class _HomePageState extends State<HomePage> {
       builder: (_) => SettingsSheet(
         initialPythonPath: runner.pythonPath,
         initialCliPath: runner.cliScriptPath,
-        onSave: (py, cli) {
-          setState(() {
-            final pyTrim = py.trim();
-            final cliTrim = cli.trim();
+      onSave: (py, cli) {
+        setState(() {
+          final pyTrim = py.trim();
+          final cliTrim = cli.trim();
 
-            runner.pythonPath = pyTrim.isEmpty ? "python" : pyTrim;
+          runner.pythonPath = pyTrim.isEmpty ? "python" : pyTrim;
 
-            // CRITICAL FIX:
-            // If empty, KEEP current value (do NOT fallback to quotescript_cli.py).
-            runner.cliScriptPath =
-                cliTrim.isEmpty ? runner.cliScriptPath : cliTrim;
-          });
-        },
+          // CRITICAL:
+          // If empty, keep existing value (do NOT force quotescript_cli.py)
+          runner.cliScriptPath = cliTrim.isEmpty ? runner.cliScriptPath : cliTrim;
+        });
+      },
       ),
     );
   }
@@ -229,8 +228,6 @@ class _Panel extends StatelessWidget {
 
 const String _defaultExample = r'''
 QUOTE: "Freedom" exact
-AUTHOR: "Epictetus" forgiving
-THEME: "Wisdom" loose
 
 TOP: 5
 RANDOM: 2
