@@ -1,0 +1,160 @@
+name: Build & Release (Windows / Linux / macOS)
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # -------------------------
+      # Python backend (PyInstaller)
+      # -------------------------
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            backend/requirements.txt
+
+      - name: Install backend deps + PyInstaller
+        working-directory: backend
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pyinstaller
+
+      - name: Build backend executable (PyInstaller spec)
+        working-directory: backend
+        shell: bash
+        run: |
+          test -f quotescript_cli.spec
+          pyinstaller --noconfirm quotescript_cli.spec
+
+      # -------------------------
+      # Flutter setup
+      # -------------------------
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable desktop targets (safe no-op if already enabled)
+        working-directory: frontend
+        shell: bash
+        run: |
+          flutter config --enable-windows-desktop || true
+          flutter config --enable-linux-desktop || true
+          flutter config --enable-macos-desktop || true
+
+      - name: Linux build deps
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+
+      - name: Flutter pub get
+        working-directory: frontend
+        run: flutter pub get
+
+      # -------------------------
+      # Build per OS
+      # -------------------------
+      - name: Build Flutter (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: frontend
+        run: flutter build windows --release
+
+      - name: Build Flutter (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: frontend
+        run: flutter build linux --release
+
+      - name: Build Flutter (macOS)
+        if: matrix.os == 'macos-latest'
+        working-directory: frontend
+        run: flutter build macos --release
+
+      # -------------------------
+      # Bundle backend into Flutter output
+      # Your runner looks for: <appDir>/quotescript_cli/quotescript_cli(.exe)
+      # -------------------------
+      - name: Bundle backend into Windows release folder
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $releaseDir = "frontend/build/windows/x64/runner/Release"
+          if (!(Test-Path $releaseDir)) { throw "Release dir not found: $releaseDir" }
+
+          New-Item -ItemType Directory -Force -Path "$releaseDir/quotescript_cli" | Out-Null
+          Copy-Item -Recurse -Force "backend/dist/quotescript_cli/*" "$releaseDir/quotescript_cli/"
+
+          # Create artifact
+          if (Test-Path "QuoteScript-Windows.zip") { Remove-Item "QuoteScript-Windows.zip" -Force }
+          Compress-Archive -Path "$releaseDir/*" -DestinationPath "QuoteScript-Windows.zip" -Force
+
+      - name: Bundle backend into Linux release bundle
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          releaseDir="frontend/build/linux/x64/release/bundle"
+          test -d "$releaseDir"
+
+          mkdir -p "$releaseDir/quotescript_cli"
+          cp -r backend/dist/quotescript_cli/* "$releaseDir/quotescript_cli/"
+
+          # Ensure executable bit (usually already set, but safe)
+          chmod +x "$releaseDir/quotescript_cli/quotescript_cli" || true
+
+          tar -czf QuoteScript-Linux.tar.gz -C "$releaseDir" .
+
+      - name: Bundle backend into macOS .app
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          base="frontend/build/macos/Build/Products/Release"
+          appPath="$(find "$base" -maxdepth 1 -name "*.app" | head -n 1)"
+          if [ -z "$appPath" ]; then
+            echo "No .app found in $base"
+            exit 1
+          fi
+
+          macosDir="$appPath/Contents/MacOS"
+          mkdir -p "$macosDir/quotescript_cli"
+          cp -R backend/dist/quotescript_cli/* "$macosDir/quotescript_cli/"
+
+          chmod +x "$macosDir/quotescript_cli/quotescript_cli" || true
+
+          # Zip the .app properly
+          ditto -c -k --sequesterRsrc --keepParent "$appPath" "QuoteScript-macOS.zip"
+
+      # -------------------------
+      # Upload artifacts to the GitHub Release created for the tag
+      # -------------------------
+      - name: Upload assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            QuoteScript-Windows.zip
+            QuoteScript-Linux.tar.gz
+            QuoteScript-macOS.zip
