@@ -2,6 +2,8 @@
 
 QuoteScript is a domain-specific language (DSL) for querying and exploring a quotes database. It is backed by a full compiler pipeline written in Python and surfaced through a Flutter desktop GUI.
 
+![QuoteScript Home Screen](quotescript-app.png)
+
 ## What is it?
 
 QuoteScript lets you express what you want from a quotes collection in clean, human-readable syntax — and get back exactly that. Under the hood it goes through the classic compiler phases: lexing, parsing, semantic analysis, IR generation, optimisation, and execution. The result lands in a split-pane desktop interface where you write your script on the left and read your output on the right.
