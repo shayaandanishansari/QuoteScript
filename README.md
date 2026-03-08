@@ -92,5 +92,7 @@ The Flutter GUI made it feel like a real tool rather than a script you run in a 
 ## Credits
 
 - Quotes database: [Luke Peavy — quotable-io/data](https://github.com/quotable-io/data)
-- Compiler backend: Python
+
+## Technology
+- Compiler runtime: Python
 - Desktop GUI: Flutter / Dart
