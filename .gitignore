@@ -1,0 +1,35 @@
+# Python compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE files
+.idea/
+.vscode/
+
+# Database files (if not required)
+# backend/data/db/*.db  # Commented out since you mentioned DB is required
+
+# Archives
+*.zip
+*.tar
+*.gz
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+venv/
+env/
+.venv/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
